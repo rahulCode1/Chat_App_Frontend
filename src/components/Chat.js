@@ -2,9 +2,10 @@ import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import axios from "axios";
 import MessageList from "./MessageList";
+import EmojiPicker from "emoji-picker-react";
 import "./chat.css";
 
-const socket = io(`${process.env.REACT_APP_BACKEND_URL}`);
+const socket = io("http://localhost:5001");
 
 export const Chat = ({ user }) => {
   const [users, setUsers] = useState([]);
@@ -12,85 +13,170 @@ export const Chat = ({ user }) => {
   const [messages, setMessages] = useState([]);
   const [currentMessage, setCurrentMessage] = useState("");
 
+  const [typingUser, setTypingUser] = useState("");
+  const [showEmoji, setShowEmoji] = useState(false);
+
   useEffect(() => {
-    // Fetch all users excluding the current user
     const fetchUsers = async () => {
-      try {
-        const { data } = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/users`, {
-          params: { currentUser: user.username },
-        });
-        setUsers(data);
-      } catch (error) {
-        console.error("Error fetching users", error);
-      }
+      const { data } = await axios.get("http://localhost:5001/users", {
+        params: { currentUser: user.username },
+      });
+      setUsers(data);
     };
 
     fetchUsers();
 
-    // Listen for incoming messages
     socket.on("receive_message", (data) => {
+      if (data.sender === user.username) return;
+
       if (data.sender === currentChat || data.receiver === currentChat) {
-        setMessages((prev) => [...prev, data]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            ...data,
+            createdAt: data.createdAt || new Date().toISOString(),
+            read: data.read ?? false,
+          },
+        ]);
+      }
+    });
+
+    socket.on("user_typing", ({ sender, receiver }) => {
+      if (receiver === user.username && sender === currentChat) {
+        setTypingUser(sender);
+      }
+    });
+
+    socket.on("user_stop_typing", () => {
+      setTypingUser("");
+    });
+
+    socket.on("message_read", ({ sender }) => {
+      if (sender === currentChat) {
+        setMessages((prev) =>
+          prev.map((m) => ({ ...m, read: true }))
+        );
       }
     });
 
     return () => {
       socket.off("receive_message");
+      socket.off("user_typing");
+      socket.off("user_stop_typing");
+      socket.off("message_read");
     };
-  }, [currentChat]);
+  }, [currentChat, user.username]);
 
   const fetchMessages = async (receiver) => {
-    try {
-      const { data } = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/messages`, {
-        params: { sender: user.username, receiver },
+    const { data } = await axios.get("http://localhost:5001/messages", {
+      params: { sender: user.username, receiver },
+    });
+
+    setMessages(data);
+    setCurrentChat(receiver);
+
+    socket.emit("mark_read", {
+      sender: receiver,
+      receiver: user.username,
+    });
+  };
+
+  let typingTimeout;
+
+  const handleTyping = (e) => {
+    setCurrentMessage(e.target.value);
+
+    socket.emit("typing", {
+      sender: user.username,
+      receiver: currentChat,
+    });
+
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      socket.emit("stop_typing", {
+        sender: user.username,
+        receiver: currentChat,
       });
-      setMessages(data);
-      setCurrentChat(receiver);
-    } catch (error) {
-      console.error("Error fetching messages", error);
-    }
+    }, 1000);
   };
 
   const sendMessage = () => {
+    if (!currentMessage.trim()) return;
+
     const messageData = {
       sender: user.username,
       receiver: currentChat,
       message: currentMessage,
+      createdAt: new Date().toISOString(),
+      read: false,
     };
+
     socket.emit("send_message", messageData);
-    setMessages((prev) => [...prev, messageData]);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...messageData,
+        read: false,
+      },
+    ]);
+
     setCurrentMessage("");
+    setShowEmoji(false);
   };
 
   return (
     <div className="chat-container">
       <h2>Welcome, {user.username}</h2>
+
       <div className="chat-list">
         <h3>Chats</h3>
         {users.map((u) => (
           <div
             key={u._id}
-            className={`chat-user ${
-              currentChat === u.username ? "active" : ""
-            }`}
+            className={`chat-user ${currentChat === u.username ? "active" : ""
+              }`}
             onClick={() => fetchMessages(u.username)}
           >
             {u.username}
           </div>
         ))}
       </div>
+
       {currentChat && (
         <div className="chat-window">
           <h5>You are chatting with {currentChat}</h5>
+
+          {typingUser && (
+            <p className="text-muted small">{typingUser} is typing...</p>
+          )}
+
           <MessageList messages={messages} user={user} />
+
           <div className="message-field">
+            <button
+              className="btn btn-light me-2"
+              onClick={() => setShowEmoji(!showEmoji)}
+            >
+              😊
+            </button>
+
+            {showEmoji && (
+              <EmojiPicker
+                onEmojiClick={(emoji) =>
+                  setCurrentMessage((prev) => prev + emoji.emoji)
+                }
+              />
+            )}
+
             <input
               type="text"
               placeholder="Type a message..."
               value={currentMessage}
               style={{ minWidth: "400px" }}
-              onChange={(e) => setCurrentMessage(e.target.value)}
+              onChange={handleTyping}
             />
+
             <button className="btn-prime" onClick={sendMessage}>
               Send
             </button>
