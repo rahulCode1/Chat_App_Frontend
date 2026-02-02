@@ -51,10 +51,15 @@ export const Chat = ({ user }) => {
       setTypingUser("");
     });
 
-    socket.on("message_read", ({ sender }) => {
-      if (sender === currentChat) {
+    // ✅ FIXED READ RECEIPT LISTENER
+    socket.on("message_read", ({ sender, receiver }) => {
+      if (receiver === user.username && sender === currentChat) {
         setMessages((prev) =>
-          prev.map((m) => ({ ...m, read: true }))
+          prev.map((m) =>
+            m.sender === user.username
+              ? { ...m, read: true }
+              : m
+          )
         );
       }
     });
@@ -75,6 +80,7 @@ export const Chat = ({ user }) => {
     setMessages(data);
     setCurrentChat(receiver);
 
+    // ✅ MARK MESSAGES AS READ
     socket.emit("mark_read", {
       sender: receiver,
       receiver: user.username,
@@ -115,10 +121,7 @@ export const Chat = ({ user }) => {
 
     setMessages((prev) => [
       ...prev,
-      {
-        ...messageData,
-        read: false,
-      },
+      { ...messageData, read: false },
     ]);
 
     setCurrentMessage("");
