@@ -9,6 +9,8 @@ const MessageList = ({ messages, user }) => {
     });
   };
 
+
+
   return (
     <div className="message-list">
       {messages.map((msg, index) => (

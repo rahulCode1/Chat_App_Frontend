@@ -17,6 +17,9 @@ export const Chat = ({ user }) => {
   const [showEmoji, setShowEmoji] = useState(false);
 
   useEffect(() => {
+    // ✅ REGISTER USER ON CONNECTION
+    socket.emit("register_user", user.username);
+
     const fetchUsers = async () => {
       const { data } = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/users`, {
         params: { currentUser: user.username },
@@ -38,6 +41,12 @@ export const Chat = ({ user }) => {
             read: data.read ?? false,
           },
         ]);
+
+        // ✅ AUTO-MARK AS READ IF CHAT IS CURRENTLY OPEN
+        socket.emit("mark_read", {
+          sender: data.sender,
+          receiver: user.username,
+        });
       }
     });
 
@@ -53,10 +62,11 @@ export const Chat = ({ user }) => {
 
     // ✅ FIXED READ RECEIPT LISTENER
     socket.on("message_read", ({ sender, receiver }) => {
-      if (receiver === user.username && sender === currentChat) {
+      // When MY messages (I'm the sender) are read by the receiver
+      if (sender === user.username && receiver === currentChat) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.sender === user.username
+            m.sender === user.username && m.receiver === receiver
               ? { ...m, read: true }
               : m
           )
@@ -80,7 +90,7 @@ export const Chat = ({ user }) => {
     setMessages(data);
     setCurrentChat(receiver);
 
-    // ✅ MARK MESSAGES AS READ
+    // ✅ MARK MESSAGES AS READ WHEN OPENING CHAT
     socket.emit("mark_read", {
       sender: receiver,
       receiver: user.username,
